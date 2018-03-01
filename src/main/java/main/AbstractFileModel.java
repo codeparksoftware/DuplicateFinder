@@ -1,7 +1,8 @@
-package jTable;
+package main;
 
 import java.util.Vector;
 
+import javax.swing.ImageIcon;
 import javax.swing.table.AbstractTableModel;
 
 public class AbstractFileModel extends AbstractTableModel {
@@ -12,6 +13,14 @@ public class AbstractFileModel extends AbstractTableModel {
 	public AbstractFileModel(String[] columns) {
 		columnNames = columns;
 		dataVector = new Vector<>();
+	}
+
+	@Override
+	public boolean isCellEditable(int row, int column) {
+		// Only the third column
+		if (column == 2)
+			return true;
+		return false;
 	}
 
 	public String getColumnName(int column) {
@@ -42,10 +51,16 @@ public class AbstractFileModel extends AbstractTableModel {
 	}
 
 	@Override
-	public Class getColumnClass(int column) {
+	public Class<?> getColumnClass(int column) {
+		if (column == 0)
+			return ImageIcon.class;
+		if (dataVector.size() > 0)
+			return getValueAt(0, column).getClass();
 
 		return Object.class;
 	}
+	 
+
 
 	public void setValueAt(Object value, int row, int column) {
 		FileModel fm = (FileModel) dataVector.get(row);

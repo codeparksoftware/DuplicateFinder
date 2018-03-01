@@ -6,50 +6,67 @@ import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.Graphics;
+import java.awt.Graphics2D;
+import java.awt.Insets;
+import java.awt.RenderingHints;
+import java.awt.Shape;
 import java.awt.Toolkit;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.awt.geom.Ellipse2D;
+import java.io.File;
+import java.io.IOException;
 import java.net.URL;
-import java.util.List;
+import java.nio.file.Files;
+import java.util.Iterator;
+import java.util.Map;
 import java.util.Objects;
-import java.util.Vector;
-import java.util.stream.Collectors;
 
+import javax.swing.BorderFactory;
 import javax.swing.Icon;
 import javax.swing.ImageIcon;
-import javax.swing.JCheckBox;
-import javax.swing.JComponent;
+import javax.swing.JButton;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
-import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JTable;
 import javax.swing.ListSelectionModel;
-import javax.swing.SwingUtilities;
-import javax.swing.event.TableModelEvent;
-import javax.swing.event.TableModelListener;
-import javax.swing.plaf.ColorUIResource;
-import javax.swing.table.DefaultTableModel;
-import javax.swing.table.JTableHeader;
-import javax.swing.table.TableCellEditor;
-import javax.swing.table.TableCellRenderer;
-import javax.swing.table.TableColumn;
-import javax.swing.table.TableColumnModel;
+import javax.swing.SwingWorker;
 import javax.swing.table.TableModel;
 
 import Gradient.GradientPanel;
-import jTable.AbstractFileModel;
-import jTable.Status;
+import common.DialogResult;
+import common.MapUtils;
+import common.MessageBox;
+import filesystem.XFile;
+import jTable.XJTable;
+import log.Level;
+import log.Logger;
+import patterns.ImageFactory;
 
 public class frmMain extends JFrame {
-	private JTable table;
+	private XJTable table;
 
-	public static final String[] columnNames = { "File", "Select All", "Size", "Type", "Path" };
-	protected transient HeaderCheckBoxHandler handler;
-	protected final int CHECKBOX_COLUMN = 1;
+	public static final String[] columnNames = { "Icon", "File", "Select All", "Size", "Type", "Path", "Hash",
+			"Color" };
 
-	public frmMain() {
+	private static final Logger logger = Logger.getLogger(frmMain.class.getName());
+
+	public frmMain(Map<Long, XFile> lst) {
+
+		setUI();
+
+		if (lst != null) {
+			fillGrid(MapUtils.sortByComparator(lst, false));
+		}
+
+		this.pack();
+
+	}
+
+	private void setUI() {
+		setExtendedState(JFrame.MAXIMIZED_BOTH);
 		URL iconUrl = this.getClass().getResource("/images/duplicate_main_50.png");
 		Toolkit tk = this.getToolkit();
 		ImageIcon bannericon = new ImageIcon(tk.getImage(iconUrl));
@@ -79,275 +96,210 @@ public class frmMain extends JFrame {
 		lblNewLabel.setFont(new Font("Tahoma", Font.BOLD, 17));
 		panel_1.add(lblNewLabel, BorderLayout.CENTER);
 
+		JButton btnCleanAll = new RoundButton(new ImageIcon(getClass().getResource("/images/trash.png")),
+				"/images/trashd.png", "/images/trashg.png");
+		btnCleanAll.setBorder(BorderFactory.createEmptyBorder());
+		btnCleanAll.setContentAreaFilled(false);
+		btnCleanAll.setSize(50, 50);
+		btnCleanAll.addActionListener(new ActionListener() {
+
+			@Override
+			public void actionPerformed(ActionEvent e) {
+
+				TableModel tm = table.getModel();
+				int count = 0;
+				for (int i = 0; i < tm.getRowCount(); i++) {
+
+					count++;
+				}
+				DialogResult result = MessageBox
+						.showMessage("The " + count + " selected files will be deleted from your computer.\r\n\r\n"
+								+ "Do you confirm the deletion?", "Deletion files");
+				if (result == DialogResult.Yes) {
+					table.setEnabled(false);
+					Worker worker = new Worker();
+					worker.execute();
+					table.setEnabled(true);
+				}
+
+			}
+		});
+		panel_1.add(btnCleanAll, BorderLayout.EAST);
+
 		JPanel panel_2 = new JPanel();
 		panel.add(panel_2, BorderLayout.CENTER);
 		panel_2.setLayout(new BorderLayout(0, 0));
 
 		setJTable(panel_2);
-		this.pack();
-		this.show();
 	}
 
 	private void setJTable(JPanel panel_2) {
-		table = new JTable(new AbstractFileModel(columnNames)) {
+		table = new XJTable();
 
-			@Override
-			public void updateUI() {
-				// [JDK-6788475] Changing to Nimbus LAF and back doesn't reset look and feel of
-				// JTable completely - Java Bug System
-				// https://bugs.openjdk.java.net/browse/JDK-6788475
-				// XXX: set dummy ColorUIResource
-				setSelectionForeground(new ColorUIResource(Color.RED));
-				setSelectionBackground(new ColorUIResource(Color.RED));
-				getTableHeader().removeMouseListener(handler);
-				TableModel m = getModel();
-				if (Objects.nonNull(m)) {
-					m.removeTableModelListener(handler);
-				}
-				super.updateUI();
-
-				m = getModel();
-				for (int i = 0; i < m.getColumnCount(); i++) {
-					TableCellRenderer r = getDefaultRenderer(m.getColumnClass(i));
-					if (r instanceof Component) {
-						SwingUtilities.updateComponentTreeUI((Component) r);
-					}
-				}
-				TableColumn column = getColumnModel().getColumn(CHECKBOX_COLUMN);
-				column.setHeaderRenderer(new HeaderRenderer());
-				column.setHeaderValue(Status.INDETERMINATE);
-
-				handler = new HeaderCheckBoxHandler(this, CHECKBOX_COLUMN);
-				m.addTableModelListener(handler);
-				getTableHeader().addMouseListener(handler);
-			}
-
-			@Override
-			public Component prepareEditor(TableCellEditor editor, int row, int column) {
-				Component c = super.prepareEditor(editor, row, column);
-				if (c instanceof JCheckBox) {
-					JCheckBox b = (JCheckBox) c;
-					b.setBackground(getSelectionBackground());
-					b.setBorderPainted(true);
-				}
-				return c;
-			}
-
-		};
+		table.setModel(new AbstractFileModel(columnNames));
+		table.setCheckBOXCol(2);
 		table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
 		table.setRowSelectionAllowed(true);
 		table.setFillsViewportHeight(true);
 		table.setPreferredScrollableViewportSize(table.getPreferredSize());
-
-		// TableCellRenderer renderer = new EvenOddRenderer();
-		// table.setDefaultRenderer(Object.class, renderer);
 		table.setAutoResizeMode(JTable.AUTO_RESIZE_NEXT_COLUMN);
 		table.setFont(new Font(table.getFont().getName(), Font.PLAIN, 11));
-		// table.getColumnModel().getColumn(0).setMaxWidth(150);
-		table.getColumnModel().getColumn(0).setPreferredWidth((int) this.getWidth() / 4);
-		table.getColumnModel().getColumn(1).setMaxWidth(80);
-		table.getColumnModel().getColumn(2).setMaxWidth(50);
-		table.getColumnModel().getColumn(3).setMaxWidth(50);
-		table.getColumnModel().getColumn(4).setPreferredWidth((int) this.getWidth() / 2);
+		table.getColumnModel().getColumn(0).setMaxWidth(50);
+		table.getColumnModel().getColumn(1).setPreferredWidth(150);
+		table.getColumnModel().getColumn(1).setMaxWidth(200);
 
-		/*
-		 * table.getColumnModel().getColumn(4).setPreferredWidth((int) this.getWidth() /
-		 * 5); table.getColumnModel().getColumn(5).setPreferredWidth((int)
-		 * this.getWidth() / 5);
-		 * table.getColumnModel().getColumn(6).setPreferredWidth((int) this.getWidth() /
-		 * 5); table.getColumnModel().getColumn(7).setPreferredWidth((int)
-		 * this.getWidth() / 15);
-		 */
-
+		table.getColumnModel().getColumn(2).setMaxWidth(100);
+		table.getColumnModel().getColumn(3).setMaxWidth(100);
+		table.getColumnModel().getColumn(4).setMaxWidth(100);
+		table.getColumnModel().getColumn(5).setPreferredWidth((int) this.getWidth() / 2);
+		// table.getColumnModel().getColumn(4).sizeWidthToFit();
+		table.getColumnModel().getColumn(6).setMaxWidth(0);
+		table.getColumnModel().getColumn(6).setMinWidth(0);
+		table.getColumnModel().getColumn(6).setPreferredWidth(0);
+		// table.removeColumn(table.getColumnModel().getColumn(5));
+		table.getColumnModel().getColumn(7).setMaxWidth(0);
+		table.getColumnModel().getColumn(7).setMinWidth(0);
+		table.getColumnModel().getColumn(7).setPreferredWidth(0);
+		table.setRowHeight(40);
+		// table.setRowHeight(1, 30);
 		JScrollPane js = new JScrollPane(table);
-
-		JPopupMenu popupMenu = new JPopupMenu();
-
-		addPopup(table, popupMenu);
-		/*
-		 * JMenuItem itmAddFile = new JMenuItem(ADD_FILE);
-		 * itmAddFile.addActionListener(new ActionListener() { public void
-		 * actionPerformed(ActionEvent arg0) { addFile(); } });
-		 * popupMenu.add(itmAddFile);
-		 * 
-		 * JMenuItem itmNewMenuItem = new JMenuItem("Add Folder");
-		 * itmNewMenuItem.addActionListener(new ActionListener() { public void
-		 * actionPerformed(ActionEvent e) { addDirectory(); } });
-		 * popupMenu.add(itmNewMenuItem); popupMenu.addSeparator(); JMenuItem
-		 * itmRemoveSelected = new JMenuItem("Remove Selected");
-		 * itmRemoveSelected.addActionListener(new ActionListener() {
-		 * 
-		 * @Override public void actionPerformed(ActionEvent e) { removeSelected();
-		 * 
-		 * } }); popupMenu.add(itmRemoveSelected);
-		 * 
-		 * JMenuItem itmRemoveAll = new JMenuItem("Remove All");
-		 * itmRemoveAll.addActionListener(new ActionListener() {
-		 * 
-		 * @Override public void actionPerformed(ActionEvent e) { clearList(); } });
-		 * popupMenu.add(itmRemoveAll);
-		 */
-		table.addMouseListener(new MouseAdapter() {
-
-			public void mouseReleased(MouseEvent e) {
-				if (e.isPopupTrigger()) {
-					JTable source = (JTable) e.getSource();
-					int row = source.rowAtPoint(e.getPoint());
-					int column = source.columnAtPoint(e.getPoint());
-					if (!source.isRowSelected(row))
-						source.changeSelection(row, column, false, false);
-					popupMenu.show(e.getComponent(), e.getX(), e.getY());
-				}
-			}
-		});
 		panel_2.add(js);
 
 	}
 
-	private static void addPopup(Component component, final JPopupMenu popup) {
-		component.addMouseListener(new MouseAdapter() {
-			public void mousePressed(MouseEvent e) {
-				if (e.isPopupTrigger()) {
-					showMenu(e);
-				}
-			}
+	private void fillGrid(Map<Long, XFile> lst) {
 
-			public void mouseReleased(MouseEvent e) {
-				if (e.isPopupTrigger()) {
-					showMenu(e);
-				}
-			}
-
-			private void showMenu(MouseEvent e) {
-				popup.show(e.getComponent(), e.getX(), e.getY());
-			}
-		});
-	}
-
-	class HeaderRenderer implements TableCellRenderer {
-		private final JCheckBox check = new JCheckBox("");
-		private final JLabel label = new JLabel("Select All");
-
-		@Override
-		public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus,
-				int row, int column) {
-			if (value instanceof Status) {
-				switch ((Status) value) {
-				case SELECTED:
-					check.setSelected(true);
-					check.setEnabled(true);
-					break;
-				case DESELECTED:
-					check.setSelected(false);
-					check.setEnabled(true);
-					break;
-				case INDETERMINATE:
-					check.setSelected(true);
-					check.setEnabled(false);
-					break;
-				default:
-					throw new AssertionError("Unknown Status");
-				}
-			} else {
-				check.setSelected(true);
-				check.setEnabled(false);
-			}
-			check.setOpaque(false);
-			check.setFont(table.getFont());
-			TableCellRenderer r = table.getTableHeader().getDefaultRenderer();
-			JLabel l = (JLabel) r.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
-			label.setIcon(new ComponentIcon(check));
-			l.setIcon(new ComponentIcon(label));
-			l.setText(null); 
-		
-			return l;
-		}
-	}
-
-	class HeaderCheckBoxHandler extends MouseAdapter implements TableModelListener {
-		private final JTable table;
-		private final int targetColumnIndex;
-
-		protected HeaderCheckBoxHandler(JTable table, int index) {
-			super();
-			this.table = table;
-			this.targetColumnIndex = index;
-		}
-
-		@Override
-		public void tableChanged(TableModelEvent e) {
-			if (e.getType() == TableModelEvent.UPDATE && e.getColumn() == targetColumnIndex) {
-				int vci = table.convertColumnIndexToView(targetColumnIndex);
-				TableColumn column = table.getColumnModel().getColumn(vci);
-				Object status = column.getHeaderValue();
-				TableModel m = table.getModel();
-				if (m instanceof DefaultTableModel && fireUpdateEvent((DefaultTableModel) m, column, status)) {
-					JTableHeader h = table.getTableHeader();
-					h.repaint(h.getHeaderRect(vci));
-				}
-			}
-		}
-
-		@SuppressWarnings("PMD.ReplaceVectorWithList")
-		private boolean fireUpdateEvent(DefaultTableModel m, TableColumn column, Object status) {
-			if (Status.INDETERMINATE.equals(status)) {
-				List<Boolean> l = ((Vector<?>) m.getDataVector()).stream()
-						.map(v -> (Boolean) ((Vector<?>) v).get(targetColumnIndex)).distinct()
-						.collect(Collectors.toList());
-				boolean isOnlyOneSelected = l.size() == 1;
-				if (isOnlyOneSelected) {
-					column.setHeaderValue(l.get(0) ? Status.SELECTED : Status.DESELECTED);
-					return true;
+		Iterator<XFile> iterator = lst.values().iterator();
+		int tmp = 0;
+		while (iterator.hasNext()) {
+			XFile entry = (XFile) iterator.next();
+			if (entry.count > 1) {
+				entry.img = ImageFactory.Factory(entry.ext);
+				if (tmp % 2 == 0) {
+					entry.color = new Color(255, 164, 0);
 				} else {
-					return false;
+					entry.color = new Color(253, 204, 115);
 				}
-			} else {
-				column.setHeaderValue(Status.INDETERMINATE);
-				return true;
-			}
-		}
-
-		@Override
-		public void mouseClicked(MouseEvent e) {
-			JTableHeader header = (JTableHeader) e.getComponent();
-			JTable table = header.getTable();
-			TableColumnModel columnModel = table.getColumnModel();
-			TableModel m = table.getModel();
-			int vci = columnModel.getColumnIndexAtX(e.getX());
-			int mci = table.convertColumnIndexToModel(vci);
-			if (mci == targetColumnIndex && m.getRowCount() > 0) {
-				TableColumn column = columnModel.getColumn(vci);
-				Object v = column.getHeaderValue();
-				boolean b = Status.DESELECTED.equals(v);
-				for (int i = 0; i < m.getRowCount(); i++) {
-					m.setValueAt(b, i, mci);
-				}
-				column.setHeaderValue(b ? Status.SELECTED : Status.DESELECTED);
-				// header.repaint();
+				initializeFile(entry);
+				tmp++;
 			}
 		}
 	}
 
-	class ComponentIcon implements Icon {
-		private final JComponent cmp;
+	private void initializeFile(XFile x) {
 
-		protected ComponentIcon(JComponent cmp) {
-			this.cmp = cmp;
+		AbstractFileModel abs = (AbstractFileModel) table.getModel();
+		for (int i = 0; i < x.paths.size(); i++) {
+
+			FileModel fm = new FileModel(x, i);
+			abs.addRow(fm);
+		}
+
+	}
+
+	public void work() {
+
+		TableModel tm = table.getModel();
+		int count = 0;
+
+		for (int i = 0; i < tm.getRowCount(); i++) {
+
+			try {
+				if (((boolean) tm.getValueAt(i, 2)) == true) {
+			
+					Files.deleteIfExists(new File((String) tm.getValueAt(i, 5)).toPath());
+					AbstractFileModel abs = (AbstractFileModel) tm;
+					abs.DeleteRow(i);
+					table.scrollRectToVisible(table.getCellRect(i, 0, true));
+					i--;
+				}
+
+			} catch (IOException e) {
+				// TODO Auto-generated catch block
+				logger.log(Level.Error, "Deletion worker (941) " + e.getMessage());
+			}
+
+			try {
+				Thread.sleep(10);
+			} catch (InterruptedException e) {
+				// TODO Auto-generated catch block
+				logger.log(Level.Error, "Deletion worker (942) " + e.getMessage());
+			}
+
+		}
+	}
+
+	class Worker extends SwingWorker<Void, Void> {
+
+		@Override
+		protected Void doInBackground() throws Exception {
+			work();
+			return null;
+
 		}
 
 		@Override
-		public void paintIcon(Component c, Graphics g, int x, int y) {
-			SwingUtilities.paintComponent(g, cmp, c.getParent(), x, y, getIconWidth(), getIconHeight());
+		protected void done() {
+			MessageBox.showMessage("Operation completed.", "Deletion selected files.", 1000);
+		}
+
+	}
+
+ 
+
+	class RoundButton extends JButton {
+		protected Shape shape;
+		protected Shape base;
+
+		protected RoundButton(Icon icon, String i2, String i3) {
+			super(icon);
+			setPressedIcon(new ImageIcon(getClass().getResource(i2)));
+			setRolloverIcon(new ImageIcon(getClass().getResource(i3)));
 		}
 
 		@Override
-		public int getIconWidth() {
-			return cmp.getPreferredSize().width;
+		public void updateUI() {
+			super.updateUI();
+			setBorder(BorderFactory.createEmptyBorder(1, 1, 1, 1));
+			setBackground(Color.BLACK);
+			setContentAreaFilled(false);
+			setFocusPainted(false);
+			// setVerticalAlignment(SwingConstants.TOP);
+			setAlignmentY(Component.TOP_ALIGNMENT);
+			initShape();
 		}
 
 		@Override
-		public int getIconHeight() {
-			return cmp.getPreferredSize().height;
+		public Dimension getPreferredSize() {
+			Icon icon = getIcon();
+			Insets i = getInsets();
+			int iw = Math.max(icon.getIconWidth(), icon.getIconHeight());
+			return new Dimension(iw + i.right + i.left, iw + i.top + i.bottom);
+		}
+
+		protected void initShape() {
+			if (!getBounds().equals(base)) {
+				Dimension s = getPreferredSize();
+				base = getBounds();
+				shape = new Ellipse2D.Double(0, 0, s.width - 1, s.height - 1);
+			}
+		}
+
+		@Override
+		protected void paintBorder(Graphics g) {
+			initShape();
+			Graphics2D g2 = (Graphics2D) g.create();
+			g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+			g2.setPaint(getBackground());
+			// g2.setStroke(new BasicStroke(1f));
+			// g2.draw(shape);
+			g2.dispose();
+		}
+
+		@Override
+		public boolean contains(int x, int y) {
+			initShape();
+			return Objects.nonNull(shape) && shape.contains(x, y);
 		}
 	}
 

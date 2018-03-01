@@ -31,7 +31,7 @@ public class MessageBox {
 
 	public static DialogResult showMessage(String message, String title) {
 		JOptionPane pane = new JOptionPane(message, JOptionPane.QUESTION_MESSAGE, JOptionPane.YES_NO_OPTION);
-		int reply = pane.showConfirmDialog(null, title);
+		int reply = pane.showConfirmDialog(null,message, title,JOptionPane.YES_NO_OPTION);
 		if (reply == JOptionPane.YES_OPTION) {
 			return DialogResult.Yes;
 		} else
